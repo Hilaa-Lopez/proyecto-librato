@@ -7,13 +7,17 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// -------------------------------------------------------------
+// ENUMS
+// -------------------------------------------------------------
+
 enum Role {
   LISTENER
   CREATOR
   ADMIN
 }
 
-enum SubscriptionStatus {
+enum SubscriptionTier {
   FREE
   PREMIUM
 }
@@ -30,62 +34,95 @@ enum NarrationType {
   INVITED_VOICE
 }
 
-model User {
-  id                 String             @id @default(uuid())
-  email              String             @unique
-  passwordHash       String             @map("password_hash")
-  username           String             @unique
-  role               Role               @default(LISTENER)
-  subscriptionStatus SubscriptionStatus @default(FREE) @map("subscription_status")
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
+// -------------------------------------------------------------
+// MODELOS DE USUARIO Y SUSCRIPCIÓN
+// -------------------------------------------------------------
 
-  storiesWritten     Story[]            @relation("AuthorStories")
-  progressRecords    ReadingProgress[]
+model User {
+  id               String           @id @default(uuid())
+  email            String           @unique
+  username         String           @unique
+  passwordHash     String           @map("password_hash")
+  role             Role             @default(LISTENER)
+  tier             SubscriptionTier @default(FREE)
+  tierExpiresAt    DateTime?        @map("tier_expires_at") // Control de vencimiento freemium
+  isSubActive      Boolean          @default(false) @map("is_sub_active")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  // Relaciones
+  storiesWritten   Story[]          @relation("AuthorStories")
+  progressRecords  ReadingProgress[]
+  refreshTokens    RefreshToken[]
 
   @@map("users")
 }
 
+model RefreshToken {
+  id          String   @id @default(uuid())
+  tokenHash   String   @unique @map("token_hash")
+  userId      String   @map("user_id")
+  revoked     Boolean  @default(false)
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// -------------------------------------------------------------
+// MODELOS DE CATÁLOGO Y CONTENIDO
+// -------------------------------------------------------------
+
 model Story {
   id             String        @id @default(uuid())
-  title          String
+  title          String        @db.VarChar(150)
   synopsis       String        @db.Text
   coverUrl       String?       @map("cover_url")
-  genre          String
+  genre          String        @db.VarChar(50)
   status         StoryStatus   @default(DRAFT)
   isInteractive  Boolean       @default(false) @map("is_interactive")
   authorId       String        @map("author_id")
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  author         User          @relation("AuthorStories", fields: [authorId], references: [id], onDelete: Cascade)
+  author         User          @relation("AuthorStories", fields: [authorId], references: [id], onDelete: Restrict)
   chapters       Chapter[]
   progressRecords ReadingProgress[]
 
+  @@index([authorId])
+  @@index([status, genre])
   @@map("stories")
 }
 
 model Chapter {
-  id             String          @id @default(uuid())
-  storyId        String          @map("story_id")
-  chapterNumber  Int             @map("chapter_number")
-  title          String
-  contentScript  String?         @map("content_script") @db.Text
-  audioUrl       String?         @map("audio_url")
-  ambientAudioUrl String?        @map("ambient_audio_url") // Capa de efectos 8D / ambientación
-  durationSec    Int             @default(0) @map("duration_sec")
-  isFreePreview  Boolean         @default(false) @map("is_free_preview")
-  narrationType  NarrationType   @default(HUMAN_VOICE) @map("narration_type")
-  voiceModelId   String?         @map("voice_model_id") // ID externo si se usó TTS (ElevenLabs, etc.)
-  createdAt      DateTime        @default(now()) @map("created_at")
-  updatedAt      DateTime        @updatedAt @map("updated_at")
+  id              String          @id @default(uuid())
+  storyId         String          @map("story_id")
+  chapterNumber   Int             @map("chapter_number")
+  title           String          @db.VarChar(120)
+  contentScript   String?         @map("content_script") @db.Text
+  audioStorageKey String?         @map("audio_storage_key") // Key del bucket S3/R2 (no URL hardcodeada)
+  ambientStorageKey String?       @map("ambient_storage_key")
+  durationSec     Int             @default(0) @map("duration_sec")
+  isFreePreview   Boolean         @default(false) @map("is_free_preview")
+  narrationType   NarrationType   @default(HUMAN_VOICE) @map("narration_type")
+  voiceModelId    String?         @map("voice_model_id")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
 
-  story          Story           @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  story           Story           @relation(fields: [storyId], references: [id], onDelete: Cascade)
   progressRecords ReadingProgress[]
 
   @@unique([storyId, chapterNumber])
+  @@index([storyId, isFreePreview])
   @@map("chapters")
 }
+
+// -------------------------------------------------------------
+// SEGUIMIENTO DE LECTURA / ESCUCHA
+// -------------------------------------------------------------
 
 model ReadingProgress {
   id            String    @id @default(uuid())
@@ -101,5 +138,6 @@ model ReadingProgress {
   lastChapter   Chapter   @relation(fields: [lastChapterId], references: [id], onDelete: Cascade)
 
   @@unique([userId, storyId])
+  @@index([userId])
   @@map("reading_progress")
 }
