@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { PrismaClient, Role, SubscriptionTier } from '@prisma/client';
+import { PrismaClient, SubscriptionTier } from '@prisma/client';
 import { ENV } from '../../config/env';
 import { RegisterInput, LoginInput } from './auth.schema';
 
@@ -9,7 +9,8 @@ const prisma = new PrismaClient();
 
 export interface TokenPayload {
   userId: string;
-  role: Role;
+  isCreator: boolean;
+  isAdmin: boolean;
   tier: SubscriptionTier;
 }
 
@@ -61,14 +62,15 @@ export class AuthService {
         email: input.email,
         username: input.username,
         passwordHash,
-        role: input.role,
+        isCreator: input.isCreator,
         tier: SubscriptionTier.FREE,
       },
       select: {
         id: true,
         email: true,
         username: true,
-        role: true,
+        isCreator: true,
+        isAdmin: true,
         tier: true,
         createdAt: true,
       },
@@ -76,7 +78,8 @@ export class AuthService {
 
     const accessToken = this.generateAccessToken({
       userId: user.id,
-      role: user.role,
+      isCreator: user.isCreator,
+      isAdmin: user.isAdmin,
       tier: user.tier,
     });
     const refreshToken = await this.createRefreshTokenRecord(user.id);
@@ -98,7 +101,6 @@ export class AuthService {
       throw new Error('Credenciales inválidas');
     }
 
-    // Regla de negocio en tiempo real: verificar vigencia de suscripción
     const now = new Date();
     let currentTier = user.tier;
     if (user.tier === SubscriptionTier.PREMIUM && user.tierExpiresAt && user.tierExpiresAt < now) {
@@ -111,7 +113,8 @@ export class AuthService {
 
     const accessToken = this.generateAccessToken({
       userId: user.id,
-      role: user.role,
+      isCreator: user.isCreator,
+      isAdmin: user.isAdmin,
       tier: currentTier,
     });
     const refreshToken = await this.createRefreshTokenRecord(user.id);
@@ -121,7 +124,8 @@ export class AuthService {
         id: user.id,
         email: user.email,
         username: user.username,
-        role: user.role,
+        isCreator: user.isCreator,
+        isAdmin: user.isAdmin,
         tier: currentTier,
       },
       accessToken,
@@ -150,7 +154,8 @@ export class AuthService {
     const user = storedToken.user;
     const newAccessToken = this.generateAccessToken({
       userId: user.id,
-      role: user.role,
+      isCreator: user.isCreator,
+      isAdmin: user.isAdmin,
       tier: user.tier,
     });
     const newRefreshToken = await this.createRefreshTokenRecord(user.id);
