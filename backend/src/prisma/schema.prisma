@@ -1,0 +1,105 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  LISTENER
+  CREATOR
+  ADMIN
+}
+
+enum SubscriptionStatus {
+  FREE
+  PREMIUM
+}
+
+enum StoryStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum NarrationType {
+  HUMAN_VOICE
+  AI_GENERATED
+  INVITED_VOICE
+}
+
+model User {
+  id                 String             @id @default(uuid())
+  email              String             @unique
+  passwordHash       String             @map("password_hash")
+  username           String             @unique
+  role               Role               @default(LISTENER)
+  subscriptionStatus SubscriptionStatus @default(FREE) @map("subscription_status")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  storiesWritten     Story[]            @relation("AuthorStories")
+  progressRecords    ReadingProgress[]
+
+  @@map("users")
+}
+
+model Story {
+  id             String        @id @default(uuid())
+  title          String
+  synopsis       String        @db.Text
+  coverUrl       String?       @map("cover_url")
+  genre          String
+  status         StoryStatus   @default(DRAFT)
+  isInteractive  Boolean       @default(false) @map("is_interactive")
+  authorId       String        @map("author_id")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  author         User          @relation("AuthorStories", fields: [authorId], references: [id], onDelete: Cascade)
+  chapters       Chapter[]
+  progressRecords ReadingProgress[]
+
+  @@map("stories")
+}
+
+model Chapter {
+  id             String          @id @default(uuid())
+  storyId        String          @map("story_id")
+  chapterNumber  Int             @map("chapter_number")
+  title          String
+  contentScript  String?         @map("content_script") @db.Text
+  audioUrl       String?         @map("audio_url")
+  ambientAudioUrl String?        @map("ambient_audio_url") // Capa de efectos 8D / ambientación
+  durationSec    Int             @default(0) @map("duration_sec")
+  isFreePreview  Boolean         @default(false) @map("is_free_preview")
+  narrationType  NarrationType   @default(HUMAN_VOICE) @map("narration_type")
+  voiceModelId   String?         @map("voice_model_id") // ID externo si se usó TTS (ElevenLabs, etc.)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  story          Story           @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  progressRecords ReadingProgress[]
+
+  @@unique([storyId, chapterNumber])
+  @@map("chapters")
+}
+
+model ReadingProgress {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  storyId       String    @map("story_id")
+  lastChapterId String    @map("last_chapter_id")
+  playbackSec   Int       @default(0) @map("playback_sec")
+  completed     Boolean   @default(false)
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  story         Story     @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  lastChapter   Chapter   @relation(fields: [lastChapterId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storyId])
+  @@map("reading_progress")
+}
